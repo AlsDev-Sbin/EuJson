@@ -1,7 +1,6 @@
 namespace main
 include ..\euJson.e
 include std\console.e
-include std\map.e
 include std\convert.e
 
 procedure main()
@@ -25,13 +24,14 @@ procedure main()
         }
     """
     
-    sequence name, age
-    map:map objJson = json:deserialize(strJson)
+    sequence name
+    atom age
+    object objJson = euJson:deserialize(strJson)
 
-    for i = 1 to 3 do
-        name = map:get(map:get(map:get(objJson, "pessoas"), "i"&to_string(i)), "nome")
-        age = map:get(map:get(map:get(objJson, "pessoas"), "i"&to_string(i)), "idade")
-        puts(1, "name: "&name&" | age: "&age&"\n")
+    for i = 1 to euJson:jsGet(objJson, "pessoas[]", JFN_LENGTH) do
+        name = euJson:jsGet(objJson, "pessoas["&to_string(i)&"].nome")
+        age = euJson:jsGet(objJson, "pessoas["&to_string(i)&"].idade")
+        puts(1, "name: "&name&" | age: "&to_string(age)&"\n")
         
     end for
 end procedure

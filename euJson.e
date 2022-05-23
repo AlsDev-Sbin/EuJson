@@ -1,4 +1,5 @@
-namespace json
+namespace euJson
+
 include std\map.e
 include std\convert.e
 include lib\utils.e
@@ -23,21 +24,35 @@ enum type typeSearch
 	OBJECT
 end type
 
---with trace
+enum type JSON_TYPE
+	J_STRING,
+	J_NUMBER,
+	J_BOOL,
+	J_ARRAY,
+	J_OBJECT
+end type
+
+public enum type JSON_TYPE_FUNC
+	JFN_NONE,
+	JFN_LENGTH
+end type
+
 public function deserialize(sequence strJson)
 	return _deserialize(strJson)
 end function
 
+--with trace
 function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 	map:map objJson = map:new()
 	atom char = '\0'
 	integer
 		numbers_continue = 0,
-		elementArray = 1,
 		lenStrJson = length(strJson)
-	sequence words = {}
-	sequence nameKey = {}
-	sequence currentValueExpected = {"undefined"}
+	sequence
+		valueArray = {},
+		words = {},
+		nameKey = {},
+		currentValueExpected = {"undefined"}
 	bool openKey = FALSE
 	bool openValue = FALSE
 	
@@ -69,30 +84,38 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 	    -- OPEN KEY JSON
 	    elsif	equal(char,  '"') and
 				(length(currentValueExpected) > 0 and
-				find(currentValueExpected[1], {"key", "undefined"})) 
-			then
-			
-			nameKey = get_text(strJson, i+1)
-			numbers_continue = length(nameKey)+1
-			words = {}
-			
-		    continue
-		    
-		elsif	equal(char,  '"') and
-				(length(currentValueExpected) > 0 and
-				find(currentValueExpected[1], {"valueOrKey"})) 
+				find(currentValueExpected[1], {"valueOrKey", "key", "undefined"}))
 			then
 			trace(1)
+			
 			if currentSearch = ARRAY and equal(nameKey, {}) then
-				nameKey = "i"& to_string(elementArray)
-				elementArray +=1
+				words = get_text(strJson, i+1)
+				numbers_continue = length(words)+1
+				valueArray = append(valueArray, {J_STRING, words})
+				continue
+				
+			elsif equal(nameKey, {}) then
+				nameKey = get_text(strJson, i+1)
+				numbers_continue = length(nameKey)+1
+				continue
+				
+			elsif equal(words, {}) then
+			    words = get_text(strJson, i+1)
+			    numbers_continue = length(words)+1
+			    
+			else
+				
+				continue
 			end if
 			
-			words = get_text(strJson, i+1)
-			numbers_continue = length(words)+1
-			map:put(objJson, nameKey, words)
-			words = {}
+
+			if currentSearch = ARRAY then
+				valueArray = append(valueArray, {J_STRING, words})
+			else
+				map:put(objJson, nameKey, {J_STRING, words})
+			end if
 			nameKey = {}
+			words = {}
 			
 		    continue
 			
@@ -106,26 +129,26 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 		-- CLOSE VALUES ARRAY   
 		elsif	equal(char, ']') and currentSearch = ARRAY then
 		trace(1)
+			map:put(objJson, "array", {J_ARRAY, valueArray})
 			return {i, objJson}
 			
 		-- OPEN VALUES ARRAY
 		elsif	equal(char, '[') then
 		trace(1)
-			if currentSearch = ARRAY and equal(nameKey, {}) then
-				nameKey = "i"& to_string(elementArray)
-				elementArray +=1
-			end if
-				
 		    currentValueExpected = {"undefined"}
-		    sequence valueArray = _deserialize(strJson[i+1..$], ARRAY)
-		    if map:size(objJson) = 0 and equal(nameKey, {}) then
-		        objJson = valueArray[2]
+		    sequence _valueArray = _deserialize(strJson[i+1..$], ARRAY)
+		    
+		    if map:size(objJson) = 0 and length(valueArray) = 0 and length(nameKey) > 0 then
+				map:put(objJson, nameKey, {J_ARRAY, _valueArray[2]})
+				
+		    elsif map:size(objJson) = 0 and length(valueArray) = 0 then
+		        objJson = _valueArray[2]
 		        
 			else
-				map:put(objJson, nameKey, valueArray[2])
+				valueArray = append(valueArray, {J_ARRAY, _valueArray[2]})
 				
 		    end if
-		    numbers_continue = valueArray[1]
+		    numbers_continue = _valueArray[1]
 			nameKey = {}
 		    words = {}
 	
@@ -133,24 +156,28 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 		elsif	equal(char, '}') and currentSearch = OBJECT then
 		    trace(1)
 		    return {i, objJson}
-		    
+		        
 		-- OPEN VALUES OBJECT
 		elsif	equal(char, '{') then
 		trace(1)
-			if currentSearch != NONE then
-				if currentSearch = ARRAY and equal(nameKey, {}) then
-					nameKey = "i"& to_string(elementArray)
-					elementArray +=1
-				end if
-		    
+--			if currentSearch != NONE then
 				currentValueExpected = {"undefined"}
-				sequence valueArray = _deserialize(strJson[i+1..$], OBJECT)
-				map:put(objJson, nameKey, valueArray[2])
+				sequence _valueArray = _deserialize(strJson[i+1..$], OBJECT)
+				if currentSearch = ARRAY then
+					valueArray = append(valueArray, {J_OBJECT, _valueArray[2]})
 				
-				numbers_continue = valueArray[1]
+				elsif map:size(objJson) = 0 then
+					objJson = _valueArray[2]
+				else
+					map:put(objJson, nameKey, {J_OBJECT, _valueArray[2]})
+					
+				end if
+				
+				
+				numbers_continue = _valueArray[1]
 				nameKey = {}
 				words = {}
-		    end if
+--		    end if
 		    
 		-- OPEN VALUES NUMERIC OF JSON FROM KEY
 		elsif	find(char, {'-', '+'}) then
@@ -159,7 +186,7 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 			if lenStrJson >= i+1 then
 				sequence nextSeqChar = strJson[i+1..i+1]
 			    if find(nextSeqChar[1], NUMBERS) then
-			        words &= char
+			        words = {char}
 			        
 			    end if
 			    
@@ -168,12 +195,6 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 		elsif	find(char, NUMBERS) then
 		trace(1)
 			numbers_continue = 0
-		    if currentSearch = ARRAY and equal(nameKey, {}) then
-		        nameKey = "i"& to_string(elementArray)
-		        elementArray +=1
-		        
-		    end if
-		    
 		    if find(words, {"-", "+"}) then
 		        words &= get_numbers(strJson, i)
 		        numbers_continue -= 1 --Compensation for an unexpected character {'-', '+'}
@@ -183,7 +204,13 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 				
 		    end if
 		    
-			map:put(objJson, nameKey, words)
+		    if currentSearch = ARRAY and equal(nameKey, {}) then
+		        valueArray = append(valueArray, {J_NUMBER, to_number(words)})
+		        
+			else
+				map:put(objJson, nameKey, {J_NUMBER, to_number(words)})
+				
+		    end if
 			numbers_continue += length(words)-1
 			currentValueExpected = {"undefined"}
 			nameKey = {}
@@ -194,15 +221,11 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 				find(char, currentValueExpected)
 			then
 			trace(1)
-			if currentSearch = ARRAY and equal(nameKey, {}) then
-		        nameKey = "i"& to_string(elementArray)
-		        elementArray +=1
-		    end if
 		    
 		    words = get_text(strJson, i+1)
-			map:put(objJson, nameKey, words)
+			map:put(objJson, nameKey, {J_STRING, words})
 			currentValueExpected = {"undefined"}
-			numbers_continue = length(words)+2
+			numbers_continue = length(words)+1
 		    nameKey = {}
 		    words = {}
 		    continue
@@ -212,49 +235,47 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 				find("true", currentValueExpected)
 			then
 			trace(1)
-			if currentSearch = ARRAY and equal(nameKey, {}) then
-		        nameKey = "i"& to_string(elementArray)
-		        elementArray +=1
-		        
-		    end if
-			
 			if lenStrJson >= i+3 then
 			    if equal(strJson[i..i+3], "true") then
-			        map:put(objJson, nameKey, -1)
-			        numbers_continue = 3
-			        
-			    end if
+					if currentSearch = ARRAY and equal(nameKey, {}) then
+						valueArray = append(valueArray, {J_BOOL, -1})
+						
+					else
+						map:put(objJson, nameKey, {J_BOOL, -1})
+						
+					end if
+					numbers_continue = 3
+					
+				end if
 			    
 			end if
 			
 		    currentValueExpected = {"undefined"}
 		    nameKey = {}
 		    words = {}
-		    
---		    info(words, char, i, currentValueExpected, openKey, openValue)
 		    
 		elsif	equal(char, 'f') and
 				find("false", currentValueExpected)
 			then
-			
-			if currentSearch = ARRAY and equal(nameKey, {}) then
-		        nameKey = "i"& to_string(elementArray)
-		        elementArray +=1
-		        
-		    end if
-			
 			if lenStrJson >= i+4 then
 			    if equal(strJson[i..i+4], "false") then
-			        map:put(objJson, nameKey, 0)
-			        numbers_continue = 4
-			        
-			    end if
+					if currentSearch = ARRAY and equal(nameKey, {}) then
+						valueArray = append(valueArray, {J_BOOL, 0})
+						
+					else
+						map:put(objJson, nameKey, {J_BOOL, 0})
+						
+					end if
+					numbers_continue = 4
+					
+				end if
 			    
 			end if
 			
 		    currentValueExpected = {"undefined"}
 		    nameKey = {}
 		    words = {}
+		    
 	    end if
 	        
 	    
@@ -263,61 +284,190 @@ function _deserialize(sequence strJson, typeSearch currentSearch = NONE)
 	return objJson
 end function
 
-public function getx(sequence objSelect, map:map objJson)
+--with trace
+public function jsGet(map:map objJson, sequence objSelect, JSON_TYPE_FUNC FUNC = NONE)
+    sequence
+		keys = map:keys(objJson),
+		separeteSelect = {},
+		words = {},
+		value, key
+    atom
+		char
+	bool
+		containObj = FALSE,
+		containStr = FALSE, containNumber = FALSE,
+		containArr = FALSE, containBool = FALSE
     
-    sequence keys = map:keys(objJson)
-    sequence separeteSelect = {}
-    
-    if find(".", objSelect) then
-        separeteSelect = utils:split(".", objSelect)
+    -- PARSER OBJECT SELECTS
+    for i = 1 to length(objSelect) do
+        char = objSelect[i]
         
-	else
-		separeteSelect = {objSelect}
-		
-    end if
-    
-    
-    object value = {}
-    for i = 1 to length(separeteSelect) do
-		if find(separeteSelect[i], keys) then
-		    value = map:get(objJson, separeteSelect[i])
+        if equal(char, '\'') then
+            separeteSelect = append(separeteSelect, get_text(objSelect, i))
+            words = {}
+        
+        elsif equal(char, '[') then
+			separeteSelect = append(separeteSelect, words)
+			words = {char}
+			
+		elsif equal(char, ']') then
+			separeteSelect = append(separeteSelect, words & ']')
+			words = {}
+			
+		elsif equal(char, '.') then
+		    separeteSelect = append(separeteSelect, ".")
+		    words = {}
 		    
-		end if
-		
-		
-		if map:map(value) then
-		    objJson = value
-		    
-		end if
-		
+		else
+			words &= char
+			
+        end if
+        
     end for
     
---    for i = 1 to length(keys) do
---        if (find()) then
---            
---        end if
---    end for
-	
-	return value
+    if length(words) > 0 then
+        separeteSelect = append(separeteSelect, words)
+    end if
     
-end function
-
-procedure info(sequence words, atom char, integer i, sequence currentValueExpected, bool openKey, bool openValue)    
-	puts(1,
-		"words: "&words&"\n"&
-		"char: "&char&"\n"&
-		"i: "& to_string(i) &"\n"&
-		"openKey: "& iif(openKey, "true", "false") &"\n"&
-		"openValue: "& iif(openValue, "true", "false") &"\n"
-	)
-	if length(currentValueExpected) then
-	    puts(1,
-			"expected: '"& currentValueExpected[1]& "'" & currentValueExpected[2..$-iif(length(currentValueExpected)>2, 2, 0)] &"\n"
-	    )
+		
+	--< VALUES FROM RETURN OF MAP >
+	sequence
+		listKeys
+	sequence
+		valueString
+	atom
+		valueNumber,
+		valueBool
+	integer
+		valueInteger
+	object
+		valueObject,
+		valueArray
+	--</ VALUES FROM RETURN OF MAP >
+	
+	trace(1)
+    for i = 1 to length(separeteSelect) do
+		
+        key = separeteSelect[i]
+        
+        if	equal(key, {}) then
+            continue
+        elsif	map:has(objJson, key) or equal(key[1], '[') then
+			trace(1)
+			if	equal(key[1], '[') and map:has(objJson, "array") then
+				integer y = to_integer(key[2..$-1])
+				
+				valueObject = map:get(objJson, "array")
+				
+				if y = 0 and FUNC = JFN_LENGTH then
+				   return length(valueObject[2])
+				    
+				elsif length(valueObject) >= 2 then
+					valueObject = valueObject[2]
+					if length(valueObject) >= y then
+					    value = valueObject[y]
+					end if
+					
+				else
+					return {}
+					
+				end if
+			else
+				value = map:get(objJson, key)
+			end if
+            
+            if 	equal(value[1], J_STRING) then
+                valueString = value[2]
+				
+				containNumber = FALSE
+				containObj = FALSE
+				containArr = FALSE
+			    containBool = FALSE
+                containStr = TRUE
+                
+			elsif	equal(value[1], J_BOOL) then
+				valueBool = value[2]
+				
+				containStr = FALSE
+				containNumber = FALSE
+				containObj = FALSE
+				containArr = FALSE
+			    containBool = TRUE
+			    
+			elsif	equal(value[1], J_NUMBER) then
+				valueNumber = value[2]
+				
+				containStr = FALSE
+				containObj = FALSE
+				containArr = FALSE
+			    containBool = FALSE
+			    containNumber = TRUE
+			    
+			elsif	equal(value[1], J_OBJECT) then
+			    valueObject = value[2]
+			    objJson = valueObject
+			    
+			    containStr = FALSE
+				containNumber = FALSE
+				containArr = FALSE
+			    containBool = FALSE
+			    containObj = TRUE
+			    
+			elsif	equal(value[1], J_ARRAY) then
+			    valueArray = value[2]
+			    objJson = valueArray
+			    
+			    containStr = FALSE
+				containNumber = FALSE
+				containObj = FALSE
+			    containBool = FALSE
+			    containArr = TRUE
+			    
+            end if
+            
+        end if
+        
+        
+    end for
+    
+	trace(1)
+	if containArr then
+		valueArray =  map:get(valueArray, "array")
+		valueArray = valueArray[2]
+		sequence tmp = {}
+		for i = 1 to length(valueArray) do
+		    tmp = append(tmp, valueArray[i][2])
+		end for
+	    return tmp	
+	    
+	elsif containBool then
+	    return valueBool
+	    
+	elsif containNumber then
+	    return valueNumber
+	    
+	elsif containObj then
+	    return valueObject
+	    
+	elsif containStr then
+	    return valueString
 	    
 	end if
 	
-end procedure
+	return {}
+    
+end function
+
+-- {VALOR, BOOL STRING, BOOL NUMBER, BOOL OBJ, BOOL BOOL, BOOL ARR}
+function conditionGet(sequence value)
+    return {
+		value[2],
+		equal(value[1], J_STRING),
+		equal(value[1], J_NUMBER),
+		equal(value[1], J_OBJECT),
+		equal(value[1], J_BOOL),
+		equal(value[1], J_ARRAY)}
+end function
 
 function find_sequential(sequence search, sequence list)
 	integer x = 1

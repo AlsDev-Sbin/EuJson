@@ -16,7 +16,9 @@ Exemplo abaixo.
 
 <br/>
 
-Veja que atualmente ainda não possuí uma forma de acessar os objetos de forma prática, apenas atráves de `map:get()`
+Para capturar um item do objeto desserializado, é possível chamar a função jsGet, onde possuí um padrão de acesso a itens bem parecido com linguagens tradicionais POO, ex: **peoples[1].name**.
+
+É possível chamar funções internas do jsGet, por exemplo **JFN_LENGTH** para pegar o comprimendo do array.
 
 ---
 
@@ -31,7 +33,6 @@ There is already a way to parse a json in Euphoria, but the existing way, I didn
 See, it's not just passing a json string as an argument, to a json parser library ([json.e](https://github.com/OpenEuphoria/euphoria-mvc/blob/v1.15.0/include/mvc/json.e)) and receiving an object (usually a dictionary, hash table, ...). It's actually building a library from scratch with as much of the language's built-in code and with the number of dependencies as 0 and 100% cross-platform.
 
 The hash table will be used to create the objects, if the value of a json key is an object, then the value of the hash table item will also be a new hash table.<br/>
-
 
 Examples:
 
@@ -55,14 +56,15 @@ sequence strJson = """
         }
     """
   
-    sequence name, age
-    map:map objJson = json:deserialize(strJson)
+    sequence name
+    atom age
+    object objJson = euJson:deserialize(strJson)
 
-    for i = 1 to 3 do
-        name = map:get(map:get(map:get(objJson, "pessoas"), "i"&to_string(i)), "nome")
-        age = map:get(map:get(map:get(objJson, "pessoas"), "i"&to_string(i)), "idade")
-        puts(1, "name: "&name&" | age: "&age&"\n")
-  
+    for i = 1 to euJson:jsGet(objJson, "pessoas[]", JFN_LENGTH) do
+        name = euJson:jsGet(objJson, "pessoas["&to_string(i)&"].nome")
+        age = euJson:jsGet(objJson, "pessoas["&to_string(i)&"].idade")
+        puts(1, "name: "&name&" | age: "&to_string(age)&"\n")
+      
     end for
 ```
 
@@ -75,4 +77,7 @@ name: Dante | age: 0.7
 ```
 
 
-See that currently I still didn't have a way to access objects in a practical way, just through `map:get()`
+
+To capture an item from the deserialized object, it is possible to call the jsGet function, which has a pattern for accessing items very similar to traditional OOP languages, ex: **peoples[1].name**.
+
+It is possible to call jsGet built-in functions, for example **JFN_LENGTH** to get the length of the array.
